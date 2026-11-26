@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   const messages = req.body?.messages;
   if (!Array.isArray(messages) || messages.length > 24 ||
       messages.some(m => !m || !['user', 'assistant'].includes(m.role) ||
-      typeof m.content !== 'string' || m.content.length > 4000)) {
+     typeof m.content !== 'string')) {
     return res.status(400).json({ error: 'Ongeldig gesprek.' });
   }
 
