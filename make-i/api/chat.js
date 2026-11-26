@@ -14,11 +14,11 @@ export default async function handler(req, res) {
 
     const messages = body?.messages;
 
-    if (!Array.isArray(messages) || messages.some(m =>
-      !m ||
-      !['user', 'assistant'].includes(m.role) ||
-      typeof m.content !== 'string'
-    )) {
+    if (!Array.isArray(messages) || messages.length > 24 ||
+        messages.some(m => !m ||
+          !['user', 'assistant'].includes(m.role) ||
+          typeof m.content !== 'string') ||
+        JSON.stringify(messages).length > 200000) {
       return res.status(400).json({ error: 'Ongeldig gesprek.' });
     }
 
@@ -32,33 +32,40 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: 'openai/gpt-oss-120b',
+          response_format: { type: 'json_object' },
+          max_completion_tokens: 8192,
           messages: [
             {
               role: 'system',
-              content: `Je bent Make I, een vriendelijke en slimme AI-assistent.
+              content: `Je bent Make I, een slimme en vriendelijke AI.
 
-Geef natuurlijke, duidelijke antwoorden.
-Antwoord in de taal van de gebruiker.
-Gebruik Markdown voor mooie kopjes en vetgedrukte tekst.
-Geef korte antwoorden op eenvoudige vragen.
-Geef uitgebreide uitleg wanneer dat nodig is.
-Help met rekenen, leren, schrijven en programmeren.
+Antwoord natuurlijk in de taal van de gebruiker.
 
-Wanneer iemand een downloadbaar bestand vraagt:
-- Geef een korte, natuurlijke uitleg.
-- Geef de volledige bestandsinhoud in een Markdown-codeblok.
-- Gebruik filename=naam.ext op de openingsregel.
-- Maak websites bij voorkeur in één zelfstandig HTML-bestand.
-- Maak bestanden volledig af.
-- Geef geen onnodige installatie-instructies.
+Geef uitsluitend een JSON-object met answer en files.
 
-Je kunt tekstbestanden, HTML, CSS, JavaScript, Python, CSV en JSON maken.
-Je kunt nog geen echte PDF-, Word-, ZIP- of afbeeldingsbestanden maken.
-Wees eerlijk over je mogelijkheden.`
+answer bevat je normale antwoord.
+files is een array met bestanden.
+Elk bestand bevat name en content.
+
+Als iemand een downloadbaar bestand vraagt, maak het volledige bestand in files.
+
+Geef nooit instructies om code te kopiëren of handmatig op te slaan.
+
+De website maakt automatisch echte downloadknoppen.
+
+Geef bij bestanden alleen een korte uitleg in answer.
+
+Maak websites bij voorkeur in één HTML-bestand.
+
+Ondersteun HTML, CSS, JS, TXT, CSV, JSON, Python en SVG.
+
+Ondersteun nog geen echte PDF, Word, ZIP of afbeeldingen.
+
+Bij normale vragen is files een lege array.
+Gebruik Markdown in answer wanneer nuttig.`
             },
-            ...messages.slice(-24)
-          ],
-          max_completion_tokens: 8192
+            ...messages
+          ]
         })
       }
     );
@@ -67,29 +74,43 @@ Wees eerlijk over je mogelijkheden.`
 
     if (!response.ok) {
       return res.status(502).json({
-        error: `AI-aanvraag mislukt (${response.status}).`
+        error: `Groq-aanvraag mislukt (${response.status}).`
       });
     }
 
-    const answer = data.choices?.[0]?.message?.content;
-
-    if (!answer) {
+    if (data.choices?.[0]?.finish_reason === 'length') {
       return res.status(502).json({
-        error: 'Geen antwoord ontvangen. Probeer opnieuw.'
+        error: 'Bestand te groot. Vraag om een kleiner bestand.'
       });
     }
 
-    return res.status(200).json({
-      answer: answer + (
-        data.choices[0].finish_reason === 'length'
-          ? '\n\nHet antwoord is afgebroken door de AI-limiet.'
-          : ''
-      )
+    const result = JSON.parse(
+      data.choices[0].message.content
+    );
+
+    if (typeof result.answer !== 'string' ||
+        !Array.isArray(result.files)) {
+      throw new Error('Ongeldig antwoord');
+    }
+
+    const files = result.files.filter(f =>
+      f &&
+      typeof f.name === 'string' &&
+      typeof f.content === 'string' &&
+      /\.(html?|css|js|mjs|txt|csv|json|py|svg|md|xml|ts|sql|java|cpp|c|yaml|yml)$/i.test(f.name)
+    ).map(f => ({
+      name: f.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100),
+      content: f.content
+    }));
+
+    return res.json({
+      answer: result.answer,
+      files
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Er is een serverfout opgetreden. Probeer opnieuw.'
+    return res.status(502).json({
+      error: 'AI-antwoord kon niet worden verwerkt. Probeer opnieuw.'
     });
   }
 }
