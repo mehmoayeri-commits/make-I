@@ -205,7 +205,8 @@ Gebruik Markdown in answer wanneer nuttig.`
       files
     });
 
-  } catch (error) {
+} catch (error) {
+    console.error('Make I fout:', error.message);
     return res.status(502).json({
       error: 'Make I kon de opdracht niet voltooien. Probeer opnieuw.'
     });
